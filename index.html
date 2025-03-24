@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Conferência de Imobilizado</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+</head>
+<body>
+    <!-- Overlay de carregamento -->
+    <div id="loadingOverlay" style="display: none;">
+        <div class="loading-spinner"></div>
+        <div class="loading-text">Carregando dados...</div>
+    </div>
+
+    <div class="container">
+        <div class="header">
+            <h1>Conferência de Imobilizado</h1>
+            <div class="actions-right">
+                <button id="reloadButton" title="Recarregar dados"><i class="fas fa-sync-alt"></i></button>
+                <button class="config-icon" id="configIconBtn" title="Configurações">
+                    <i class="fas fa-cog" id="configIcon"></i>
+                </button>
+            </div>
+        </div>
+        
+        <div class="search-filters">
+            <div class="search-row">
+                <input type="text" id="searchName" placeholder="Buscar por nome..." class="search-input">
+                <div id="searchPreviewContainer" class="search-preview-container"></div>
+                <button id="searchButton">Buscar</button>
+                <button id="clearSearchButton">Limpar</button>
+            </div>
+            
+            <div class="filters-row">
+                <div class="filter">
+                    <label for="locationFilter">Local:</label>
+                    <div class="custom-dropdown">
+                        <div class="dropdown-selected" id="locationSelected">Todos</div>
+                        <div class="dropdown-options" id="locationOptions">
+                            <div class="dropdown-option">
+                                <input type="checkbox" id="location-all" class="all-option" checked>
+                                <label for="location-all">Todos</label>
+                            </div>
+                            <!-- Opções serão carregadas via JavaScript -->
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="filter">
+                    <label for="categoryFilter">Categoria:</label>
+                    <div class="custom-dropdown">
+                        <div class="dropdown-selected" id="categorySelected">Todas</div>
+                        <div class="dropdown-options" id="categoryOptions">
+                            <div class="dropdown-option">
+                                <input type="checkbox" id="category-all" class="all-option" checked>
+                                <label for="category-all">Todas</label>
+                            </div>
+                            <!-- Opções serão carregadas via JavaScript -->
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="filter">
+                    <label for="statusFilter">Status:</label>
+                    <div class="custom-dropdown">
+                        <div class="dropdown-selected" id="statusSelected">Todos</div>
+                        <div class="dropdown-options" id="statusOptions">
+                            <div class="dropdown-option">
+                                <input type="checkbox" id="status-all" class="all-option" checked>
+                                <label for="status-all">Todos</label>
+                            </div>
+                            <div class="dropdown-option">
+                                <input type="checkbox" id="status-ativo" value="Ativo" class="status-option">
+                                <label for="status-ativo">Ativo</label>
+                            </div>
+                            <div class="dropdown-option">
+                                <input type="checkbox" id="status-baixado" value="Baixado" class="status-option">
+                                <label for="status-baixado">Baixado</label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="table-container">
+            <table id="itemsTable">
+                <thead id="tableHeader">
+                    <!-- Cabeçalhos serão gerados dinamicamente com base nas colunas visíveis -->
+                </thead>
+                <tbody id="itemsTableBody">
+                    <!-- Dados serão carregados via JavaScript -->
+                </tbody>
+            </table>
+        </div>
+        
+        <div class="actions">
+            <button id="saveButton">Salvar Alterações</button>
+            <button id="exportButton">Exportar Dados</button>
+        </div>
+    </div>
+    
+    <!-- Modal de configurações -->
+    <div id="configModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Configurações</h2>
+                <span class="close">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="config-section">
+                    <h3>Conexão com o Servidor</h3>
+                    <div class="form-group">
+                        <label for="serverUrl">Endereço do Servidor (URL ou IP):</label>
+                        <input type="text" id="serverUrl" placeholder="http://seu-servidor.com ou 10.142.111.2">
+                    </div>
+                    <div class="form-group">
+                        <label for="username">Usuário:</label>
+                        <input type="text" id="username" placeholder="Usuário">
+                    </div>
+                    <div class="form-group">
+                        <label for="password">Senha:</label>
+                        <input type="password" id="password" placeholder="Senha">
+                    </div>
+                    <button id="testConnection">Testar Conexão</button>
+                </div>
+                
+                <div class="config-section">
+                    <h3>Colunas Visíveis</h3>
+                    <div class="columns-selector">
+                        <div class="column-option">
+                            <input type="checkbox" id="col-codigo" checked>
+                            <label for="col-codigo">Código Item</label>
+                        </div>
+                        <div class="column-option">
+                            <input type="checkbox" id="col-item" checked>
+                            <label for="col-item">Nome</label>
+                        </div>
+                        <div class="column-option">
+                            <input type="checkbox" id="col-descricao" checked>
+                            <label for="col-descricao">Descrição</label>
+                        </div>
+                        <div class="column-option">
+                            <input type="checkbox" id="col-categoria" checked>
+                            <label for="col-categoria">Categoria</label>
+                        </div>
+                        <div class="column-option">
+                            <input type="checkbox" id="col-local" checked>
+                            <label for="col-local">Local</label>
+                        </div>
+                        <div class="column-option">
+                            <input type="checkbox" id="col-mudar">
+                            <label for="col-mudar">Mudar P/</label>
+                        </div>
+                        <div class="column-option">
+                            <input type="checkbox" id="col-valor-aquisicao">
+                            <label for="col-valor-aquisicao">Valor de Aquisição</label>
+                        </div>
+                        <div class="column-option">
+                            <input type="checkbox" id="col-status">
+                            <label for="col-status">Status</label>
+                        </div>
+                        <div class="column-option">
+                            <input type="checkbox" id="col-confirmacao" checked>
+                            <label for="col-confirmacao">Confirmação</label>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="modal-footer">
+                    <button id="saveConfig">Salvar Configurações</button>
+                    <button id="cancelConfig">Cancelar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Script inline para garantir que a modal de configuração funcione -->
+    <script>
+        // Função para abrir a modal de configuração
+        function openConfigModal() {
+            document.getElementById('configModal').style.display = 'block';
+        }
+        
+        // Função para fechar a modal de configuração
+        function closeConfigModal() {
+            document.getElementById('configModal').style.display = 'none';
+        }
+        
+        // Adicionar evento ao botão de configuração assim que o script carregar
+        document.addEventListener('DOMContentLoaded', function() {
+            // Configurar botão para abrir modal
+            var configBtn = document.getElementById('configIconBtn');
+            if (configBtn) {
+                configBtn.onclick = openConfigModal;
+            }
+            
+            // Configurar botão para fechar modal
+            var closeBtn = document.querySelector('.close');
+            if (closeBtn) {
+                closeBtn.onclick = closeConfigModal;
+            }
+            
+            // Fechar modal ao clicar fora
+            window.onclick = function(event) {
+                var modal = document.getElementById('configModal');
+                if (event.target === modal) {
+                    modal.style.display = 'none';
+                }
+            };
+        });
+    </script>
+    
+    <!-- Carregar o script principal com defer para garantir que será executado após o DOM estar pronto -->
+    <script src="script.js" defer></script>
+</body>
+</html> 

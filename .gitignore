@@ -1,0 +1,38 @@
+# Arquivos do sistema operacional
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Arquivos de IDE e editores
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# Arquivos de log
+*.log
+npm-debug.log*
+
+# Arquivos temporários
+*.tmp
+*.bak
+*.swp
+
+# Arquivos de dependências
+node_modules/
+bower_components/
+
+# Arquivos de compilação e distribuição
+dist/
+build/
+*.min.js
+
+# Arquivos de ambiente
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+
+# Arquivos de cache
+.cache/ 
