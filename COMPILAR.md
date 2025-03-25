@@ -53,10 +53,6 @@ Para criar um aplicativo desktop Windows:
 1. Clique no ícone de engrenagem no canto superior direito
 2. Clique no botão "Configurar Acesso SQL"
 3. Informe os dados de conexão:
-   - Servidor SQL (padrão: 10.142.111.2)
-   - Base de Dados (padrão: CONTROLLER)
-   - Usuário (padrão: controllerabc.bi)
-   - Senha (padrão: ASp#$I!17QF0)
 4. Clique em "Testar Conexão" para verificar
 5. Clique em "Salvar" para confirmar
 
