@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' data: http: https:;">
     <title>Sistema de Conferência de Imobilizado</title>
     <link rel="stylesheet" href="styles.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
@@ -17,10 +18,12 @@
     <div class="container">
         <div class="header">
             <h1>Conferência de Imobilizado</h1>
-            <div class="actions-right">
-                <button id="reloadButton" title="Recarregar dados"><i class="fas fa-sync-alt"></i></button>
-                <button class="config-icon" id="configIconBtn" title="Configurações">
-                    <i class="fas fa-cog" id="configIcon"></i>
+            <div class="header-controls">
+                <button id="reloadButton" title="Sincronizar com o servidor">
+                    <i class="fas fa-sync"></i> Sincronizar
+                </button>
+                <button id="configButton" title="Configurações">
+                    <i class="fas fa-cog"></i>
                 </button>
             </div>
         </div>
@@ -97,7 +100,7 @@
         </div>
         
         <div class="actions">
-            <button id="saveButton">Salvar Alterações</button>
+            <button id="saveButton">Salvar Alterações (Cache Local)</button>
             <button id="exportButton">Exportar Dados</button>
         </div>
     </div>
@@ -111,20 +114,10 @@
             </div>
             <div class="modal-body">
                 <div class="config-section">
-                    <h3>Conexão com o Servidor</h3>
-                    <div class="form-group">
-                        <label for="serverUrl">Endereço do Servidor (URL ou IP):</label>
-                        <input type="text" id="serverUrl" placeholder="http://seu-servidor.com ou 10.142.111.2">
-                    </div>
-                    <div class="form-group">
-                        <label for="username">Usuário:</label>
-                        <input type="text" id="username" placeholder="Usuário">
-                    </div>
-                    <div class="form-group">
-                        <label for="password">Senha:</label>
-                        <input type="password" id="password" placeholder="Senha">
-                    </div>
-                    <button id="testConnection">Testar Conexão</button>
+                    <h3>Configuração do SQL Server</h3>
+                    <button id="configSqlButton" class="config-sql-button">
+                        <i class="fas fa-database"></i> Configurar Acesso SQL
+                    </button>
                 </div>
                 
                 <div class="config-section">
@@ -177,6 +170,48 @@
         </div>
     </div>
     
+    <!-- Modal de Configuração SQL -->
+    <div id="sqlConfigModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Configuração do SQL Server</h2>
+                <span class="close" id="closeSqlConfig">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="sqlServer">Servidor SQL:</label>
+                    <input type="text" id="sqlServer" placeholder="10.142.111.2" value="10.142.111.2">
+                </div>
+                <div class="form-group">
+                    <label for="sqlDatabase">Base de Dados:</label>
+                    <input type="text" id="sqlDatabase" placeholder="Nome da Base" value="CONTROLLER">
+                </div>
+                <div class="form-group">
+                    <label for="sqlUsername">Usuário:</label>
+                    <input type="text" id="sqlUsername" placeholder="Usuário" value="controllerabc.bi">
+                </div>
+                <div class="form-group">
+                    <label for="sqlPassword">Senha:</label>
+                    <div class="password-container">
+                        <input type="password" id="sqlPassword" placeholder="Senha" value="ASp#$I!17QF0">
+                        <button type="button" id="toggleSqlPassword" class="toggle-password">
+                            <i class="fas fa-eye"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <button id="testSqlConnection" class="primary-button">
+                        <i class="fas fa-plug"></i> Testar Conexão
+                    </button>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="saveSqlConfig" class="primary-button">Salvar</button>
+                <button id="cancelSqlConfig" class="secondary-button">Cancelar</button>
+            </div>
+        </div>
+    </div>
+    
     <!-- Script inline para garantir que a modal de configuração funcione -->
     <script>
         // Função para abrir a modal de configuração
@@ -192,7 +227,7 @@
         // Adicionar evento ao botão de configuração assim que o script carregar
         document.addEventListener('DOMContentLoaded', function() {
             // Configurar botão para abrir modal
-            var configBtn = document.getElementById('configIconBtn');
+            var configBtn = document.getElementById('configButton');
             if (configBtn) {
                 configBtn.onclick = openConfigModal;
             }
@@ -214,6 +249,61 @@
     </script>
     
     <!-- Carregar o script principal com defer para garantir que será executado após o DOM estar pronto -->
+    <script>
+        // Verificar se o DOM está carregado - debug para erro de inicialização
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('DOM está carregado, elementos disponíveis:');
+            console.log('searchName:', document.getElementById('searchName'));
+            console.log('searchButton:', document.getElementById('searchButton'));
+            console.log('tableHeader:', document.getElementById('tableHeader'));
+            console.log('itemsTableBody:', document.getElementById('itemsTableBody'));
+            // Outros elementos críticos
+        });
+    </script>
+    
+    <!-- Scripts -->
+    <script>
+        if (typeof require !== 'undefined') {
+            window.nodeRequire = require;
+            delete window.require;
+            delete window.exports;
+            delete window.module;
+        }
+    </script>
     <script src="script.js" defer></script>
+
+    <!-- Script de integração com Electron (será ativado apenas em ambiente Electron) -->
+    <script>
+        // Verificar se estamos em ambiente Electron
+        if (typeof window.require === 'function') {
+            try {
+                // Configurar a ponte de comunicação com Electron
+                window.electronAPI = window.require('electron').ipcRenderer;
+                
+                console.log('Aplicação rodando em ambiente Electron');
+                
+                // Adicionar classes CSS específicas para Electron
+                document.body.classList.add('electron-app');
+                
+                // Remover restrições CORS para ambiente desktop
+                const meta = document.createElement('meta');
+                meta.httpEquiv = "Content-Security-Policy";
+                meta.content = "default-src * 'unsafe-inline' 'unsafe-eval'; connect-src *";
+                document.head.appendChild(meta);
+            } catch (e) {
+                console.log('Tentativa de configuração do Electron falhou:', e);
+            }
+        } else {
+            console.log('Aplicação rodando em ambiente de navegador padrão');
+        }
+    </script>
+
+    <!-- Inicialização da aplicação -->
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Inicializar a aplicação depois que o DOM estiver completamente carregado
+            init();
+        });
+    </script>
 </body>
 </html> 

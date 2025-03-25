@@ -11,7 +11,7 @@ body {
 }
 
 .container {
-    max-width: 1200px;
+    max-width: 1350px;
     margin: 0 auto;
     background-color: #fff;
     padding: 20px;
@@ -183,6 +183,10 @@ button:hover {
 .table-container {
     overflow-x: auto;
     margin-bottom: 20px;
+    max-height: 850px;
+    overflow-y: auto;
+    border: 1px solid #ddd;
+    border-radius: 4px;
 }
 
 table {
@@ -266,7 +270,7 @@ tr:hover {
     margin-bottom: 20px;
 }
 
-.actions-right {
+.header-controls {
     display: flex;
     align-items: center;
     gap: 15px;
@@ -276,27 +280,30 @@ tr:hover {
     background-color: #4CAF50;
     color: white;
     border: none;
-    border-radius: 50%;
-    width: 40px;
-    height: 40px;
+    border-radius: 4px;
+    padding: 8px 12px;
     display: flex;
     align-items: center;
     justify-content: center;
+    gap: 5px;
     cursor: pointer;
-    transition: transform 0.3s, background-color 0.3s;
-    margin: 0;
-    padding: 0;
-    font-size: 18px;
+    transition: background-color 0.3s;
+    font-size: 14px;
 }
 
 #reloadButton:hover {
     background-color: #45a049;
+}
+
+#reloadButton i {
+    transition: transform 0.3s;
+}
+
+#reloadButton:hover i {
     transform: rotate(180deg);
 }
 
-#reloadButton.loading {
-    pointer-events: none;
-    opacity: 0.7;
+#reloadButton.loading i {
     animation: spin 1s linear infinite;
 }
 
@@ -559,4 +566,56 @@ tr:hover {
 
 #clearSearchButton:hover {
     background-color: #e53935;
+}
+
+.config-sql-button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    padding: 12px;
+    margin: 10px 0;
+    background-color: #007bff;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    font-size: 16px;
+    cursor: pointer;
+    transition: background-color 0.3s;
+}
+
+.config-sql-button:hover {
+    background-color: #0056b3;
+}
+
+.config-sql-button i {
+    margin-right: 8px;
+}
+
+.primary-button {
+    background-color: #007bff;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background-color 0.3s;
+}
+
+.primary-button:hover {
+    background-color: #0056b3;
+}
+
+.secondary-button {
+    background-color: #6c757d;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background-color 0.3s;
+}
+
+.secondary-button:hover {
+    background-color: #5a6268;
 } 

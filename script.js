@@ -48,6 +48,11 @@ let serverUrlInput, usernameInput, passwordInput, testConnectionBtn;
 let saveConfig, cancelConfig;
 let loadingOverlay, searchPreviewContainer;
 
+// Sistema de cache e sincronização
+let lastSyncTimestamp = localStorage.getItem('lastSyncTimestamp') || null;
+let itemsCache = JSON.parse(localStorage.getItem('itemsCache') || '[]');
+let needsSync = false;
+
 // Definições de colunas
 const columnDefs = [
     { id: 'codigo', label: 'Código Item', field: 'codigo', visible: true, sortable: true },
@@ -63,10 +68,11 @@ const columnDefs = [
 
 // Configurações do aplicativo
 let appConfig = {
-    server: {
-        url: localStorage.getItem('serverUrl') || '',
-        username: localStorage.getItem('username') || '',
-        password: localStorage.getItem('password') || ''
+    sql: {
+        server: localStorage.getItem('sqlServer') || '10.142.111.2',
+        database: localStorage.getItem('sqlDatabase') || 'CONTROLLER',
+        username: localStorage.getItem('sqlUsername') || 'controllerabc.bi',
+        password: localStorage.getItem('sqlPassword') || 'ASp#$I!17QF0'
     },
     columns: columnDefs.reduce((acc, col) => {
         acc[col.id] = col.visible;
@@ -74,17 +80,9 @@ let appConfig = {
     }, {})
 };
 
-// Inicialização - ponto de entrada principal
-document.addEventListener('DOMContentLoaded', function() {
-    console.log('DOMContentLoaded disparado');
-    initApp();
-});
-
-// Tentativa alternativa se o DOM já estiver carregado
-if (document.readyState === 'complete' || document.readyState === 'interactive') {
-    console.log('Documento já carregado, inicializando aplicativo...');
-    setTimeout(initApp, 0);
-}
+// Elementos DOM adicionais para configuração SQL
+let sqlConfigModal, sqlServerInput, sqlDatabaseInput, sqlUsernameInput, sqlPasswordInput;
+let testSqlConnectionBtn, saveSqlConfigBtn, cancelSqlConfigBtn, configSqlBtn;
 
 // Inicializar a aplicação
 async function initApp() {
@@ -96,6 +94,17 @@ async function initApp() {
         return;
     }
     
+    // Garantir que o DOM esteja completamente carregado
+    if (document.readyState !== 'complete') {
+        console.log('DOM ainda não está completamente carregado, aguardando...');
+        return new Promise(resolve => {
+            window.addEventListener('load', () => {
+                console.log('DOM carregado, continuando inicialização...');
+                setTimeout(() => initApp().then(resolve), 100);
+            });
+        });
+    }
+    
     // Marcar como inicializado
     window.appInitialized = true;
     
@@ -105,6 +114,8 @@ async function initApp() {
     // Verificar se as referências DOM críticas existem
     if (!checkCriticalReferences()) {
         console.error('Elementos DOM críticos não encontrados, não é possível inicializar a aplicação');
+        // Tentar novamente em 500ms (pode ser que o DOM ainda esteja sendo renderizado)
+        setTimeout(initApp, 500);
         return;
     }
     
@@ -122,7 +133,7 @@ async function initApp() {
     
     // Tentar carregar dados do servidor se houver configurações de conexão
     let dataLoaded = false;
-    if (appConfig.server.url && appConfig.server.username && appConfig.server.password) {
+    if (appConfig.sql.server && appConfig.sql.username && appConfig.sql.password) {
         try {
             dataLoaded = await loadDataFromServer();
         } catch (error) {
@@ -148,10 +159,24 @@ function initDOMReferences() {
     clearSearchButton = document.getElementById('clearSearchButton');
     searchPreviewContainer = document.getElementById('searchPreviewContainer');
     
-    // Tabela
+    // Tabela e elementos relacionados
     itemsTable = document.getElementById('itemsTable');
     itemsTableBody = document.getElementById('itemsTableBody');
     tableHeader = document.getElementById('tableHeader');
+    
+    // Botões de ação
+    saveButton = document.getElementById('saveButton');
+    exportButton = document.getElementById('exportButton');
+    reloadButton = document.getElementById('reloadButton');
+    
+    // Configurações
+    configModal = document.getElementById('configModal');
+    serverUrlInput = document.getElementById('serverUrl');
+    usernameInput = document.getElementById('username');
+    passwordInput = document.getElementById('password');
+    testConnectionBtn = document.getElementById('testConnection');
+    saveConfig = document.getElementById('saveConfig');
+    cancelConfig = document.getElementById('cancelConfig');
     
     // Dropdowns
     locationDropdown = {
@@ -169,41 +194,133 @@ function initDOMReferences() {
         options: document.getElementById('statusOptions')
     };
     
-    // Botões
-    saveButton = document.getElementById('saveButton');
-    exportButton = document.getElementById('exportButton');
-    reloadButton = document.getElementById('reloadButton');
-    
-    // Modal
-    configModal = document.getElementById('configModal');
-    
-    // Campos de configuração
-    serverUrlInput = document.getElementById('serverUrl');
-    usernameInput = document.getElementById('username');
-    passwordInput = document.getElementById('password');
-    testConnectionBtn = document.getElementById('testConnection');
-    saveConfig = document.getElementById('saveConfig');
-    cancelConfig = document.getElementById('cancelConfig');
-    
     // Overlay de carregamento
     loadingOverlay = document.getElementById('loadingOverlay');
     
-    console.log('Referências DOM inicializadas');
+    // Elementos da configuração SQL
+    sqlConfigModal = document.getElementById('sqlConfigModal');
+    sqlServerInput = document.getElementById('sqlServer');
+    sqlDatabaseInput = document.getElementById('sqlDatabase');
+    sqlUsernameInput = document.getElementById('sqlUsername');
+    sqlPasswordInput = document.getElementById('sqlPassword');
+    testSqlConnectionBtn = document.getElementById('testSqlConnection');
+    saveSqlConfigBtn = document.getElementById('saveSqlConfig');
+    cancelSqlConfigBtn = document.getElementById('cancelSqlConfig');
+    configSqlBtn = document.getElementById('configSqlButton');
+    
+    console.log('Referências DOM inicializadas com sucesso');
 }
 
 // Verificar referências críticas
 function checkCriticalReferences() {
     console.log('Verificando referências DOM críticas...');
     
-    let missingElements = [];
+    const requiredElements = {
+        'searchName': searchInput,
+        'searchButton': searchButton,
+        'tableHeader': tableHeader,
+        'itemsTableBody': itemsTableBody,
+        'saveButton': saveButton,
+        'exportButton': exportButton,
+        'reloadButton': reloadButton,
+        'locationSelected': locationDropdown?.selected,
+        'locationOptions': locationDropdown?.options,
+        'categorySelected': categoryDropdown?.selected,
+        'categoryOptions': categoryDropdown?.options,
+        'statusSelected': statusDropdown?.selected,
+        'statusOptions': statusDropdown?.options,
+        'configModal': configModal,
+        'saveConfig': saveConfig,
+        'cancelConfig': cancelConfig,
+        'testConnection': testConnectionBtn
+    };
     
-    if (!itemsTable) missingElements.push('itemsTable');
-    if (!itemsTableBody) missingElements.push('itemsTableBody');
-    if (!searchButton) missingElements.push('searchButton');
+    // Se elementos não foram encontrados, tente obtê-los novamente
+    if (!searchInput) searchInput = document.getElementById('searchName');
+    if (!searchButton) searchButton = document.getElementById('searchButton');
+    if (!tableHeader) tableHeader = document.getElementById('tableHeader');
+    if (!itemsTableBody) itemsTableBody = document.getElementById('itemsTableBody');
+    if (!saveButton) saveButton = document.getElementById('saveButton');
+    if (!exportButton) exportButton = document.getElementById('exportButton');
+    if (!reloadButton) reloadButton = document.getElementById('reloadButton');
+    
+    if (!locationDropdown?.selected) {
+        if (!locationDropdown) locationDropdown = {};
+        locationDropdown.selected = document.getElementById('locationSelected');
+    }
+    
+    if (!locationDropdown?.options) {
+        if (!locationDropdown) locationDropdown = {};
+        locationDropdown.options = document.getElementById('locationOptions');
+    }
+    
+    if (!categoryDropdown?.selected) {
+        if (!categoryDropdown) categoryDropdown = {};
+        categoryDropdown.selected = document.getElementById('categorySelected');
+    }
+    
+    if (!categoryDropdown?.options) {
+        if (!categoryDropdown) categoryDropdown = {};
+        categoryDropdown.options = document.getElementById('categoryOptions');
+    }
+    
+    if (!statusDropdown?.selected) {
+        if (!statusDropdown) statusDropdown = {};
+        statusDropdown.selected = document.getElementById('statusSelected');
+    }
+    
+    if (!statusDropdown?.options) {
+        if (!statusDropdown) statusDropdown = {};
+        statusDropdown.options = document.getElementById('statusOptions');
+    }
+    
+    if (!configModal) configModal = document.getElementById('configModal');
+    if (!saveConfig) saveConfig = document.getElementById('saveConfig');
+    if (!cancelConfig) cancelConfig = document.getElementById('cancelConfig');
+    if (!testConnectionBtn) testConnectionBtn = document.getElementById('testConnection');
+    
+    // Atualizar o objeto requiredElements com os valores atualizados
+    requiredElements.searchName = searchInput;
+    requiredElements.searchButton = searchButton;
+    requiredElements.tableHeader = tableHeader;
+    requiredElements.itemsTableBody = itemsTableBody;
+    requiredElements.saveButton = saveButton;
+    requiredElements.exportButton = exportButton;
+    requiredElements.reloadButton = reloadButton;
+    requiredElements.locationSelected = locationDropdown?.selected;
+    requiredElements.locationOptions = locationDropdown?.options;
+    requiredElements.categorySelected = categoryDropdown?.selected;
+    requiredElements.categoryOptions = categoryDropdown?.options;
+    requiredElements.statusSelected = statusDropdown?.selected;
+    requiredElements.statusOptions = statusDropdown?.options;
+    requiredElements.configModal = configModal;
+    requiredElements.saveConfig = saveConfig;
+    requiredElements.cancelConfig = cancelConfig;
+    requiredElements.testConnection = testConnectionBtn;
+
+    let missingElements = [];
+    for (const [id, element] of Object.entries(requiredElements)) {
+        if (!element) {
+            missingElements.push(id);
+            console.error(`Elemento ${id} não encontrado`);
+        }
+    }
     
     if (missingElements.length > 0) {
-        console.error('Elementos críticos ausentes:', missingElements.join(', '));
-        return false;
+        console.error(`Elementos críticos ausentes: ${missingElements.join(', ')}`);
+        
+        // Alertar o usuário apenas se faltar algum elemento verdadeiramente crítico
+        const trulyCriticalElements = ['tableHeader', 'itemsTableBody'];
+        const criticalMissing = missingElements.filter(el => trulyCriticalElements.includes(el));
+        
+        if (criticalMissing.length > 0) {
+            alert(`Erro: Elementos críticos da interface não foram encontrados: ${criticalMissing.join(', ')}`);
+            return false;
+        }
+        
+        // Se apenas elementos não críticos estiverem faltando, podemos continuar com aviso no console
+        console.warn(`Alguns elementos não críticos estão faltando, a aplicação pode ter funcionalidades limitadas`);
+        return true;
     }
     
     console.log('Todas as referências críticas estão presentes');
@@ -254,11 +371,19 @@ function setupEventListeners() {
         }
     });
     
+    // Botão para sincronizar manualmente com o servidor
+    if (reloadButton) {
+        reloadButton.addEventListener('click', function() {
+            console.log('Botão recarregar dados clicado');
+            forceSyncWithServer();
+        });
+    }
+    
     // Botão salvar alterações
     if (saveButton) {
         saveButton.addEventListener('click', function() {
             console.log('Botão salvar alterações clicado');
-            saveChanges();
+            syncLocalChangesToServer();
         });
     }
     
@@ -270,13 +395,8 @@ function setupEventListeners() {
         });
     }
     
-    // Botão recarregar
-    if (reloadButton) {
-        reloadButton.addEventListener('click', async function() {
-            console.log('Botão recarregar clicado');
-            reloadData();
-        });
-    }
+    // Carregar opções nos dropdowns de filtros
+    loadInitialFilters();
     
     // Setup da modal de configuração (já feito via script inline no HTML)
     setupConfigModal();
@@ -286,7 +406,7 @@ function setupEventListeners() {
 
 // Recarregar dados do servidor
 async function reloadData() {
-    if (appConfig.server.url && appConfig.server.username && appConfig.server.password) {
+    if (appConfig.sql.server && appConfig.sql.username && appConfig.sql.password) {
         reloadButton.classList.add('loading');
         await loadDataFromServer();
         reloadButton.classList.remove('loading');
@@ -299,7 +419,7 @@ async function reloadData() {
 async function loadInitialData() {
     // Tentar carregar dados do servidor se houver configurações de conexão
     let dataLoaded = false;
-    if (appConfig.server.url && appConfig.server.username && appConfig.server.password) {
+    if (appConfig.sql.server && appConfig.sql.username && appConfig.sql.password) {
         try {
             dataLoaded = await loadDataFromServer();
         } catch (error) {
@@ -321,16 +441,17 @@ function loadConfig() {
             const parsedConfig = JSON.parse(savedConfig);
             
             // Garantir que a URL seja normalizada
-            if (parsedConfig.server && parsedConfig.server.url) {
-                parsedConfig.server.url = normalizeUrl(parsedConfig.server.url);
+            if (parsedConfig.sql && parsedConfig.sql.server) {
+                parsedConfig.sql.server = normalizeUrl(parsedConfig.sql.server);
             }
             
             appConfig = { ...appConfig, ...parsedConfig };
             
             // Atualizar campos de conexão
-            if (serverUrlInput) serverUrlInput.value = appConfig.server.url || '';
-            if (usernameInput) usernameInput.value = appConfig.server.username || '';
-            if (passwordInput) passwordInput.value = appConfig.server.password || '';
+            if (sqlServerInput) sqlServerInput.value = appConfig.sql.server || '';
+            if (sqlDatabaseInput) sqlDatabaseInput.value = appConfig.sql.database || '';
+            if (sqlUsernameInput) sqlUsernameInput.value = appConfig.sql.username || '';
+            if (sqlPasswordInput) sqlPasswordInput.value = appConfig.sql.password || '';
             
             // Atualizar checkboxes de colunas
             Object.keys(appConfig.columns).forEach(colId => {
@@ -347,8 +468,18 @@ function loadConfig() {
 
 // Normalizar URL do servidor (adicionar protocolo se necessário)
 function normalizeUrl(url) {
+    // Se a URL for vazia ou não informada, use o backend local
+    if (!url || url.trim() === '') {
+        return 'http://localhost:3000';
+    }
+    
+    // Caso especial para IP da rede corporativa, manter o IP original
+    if (url === '10.142.111.2') {
+        return url;
+    }
+    
     // Se a URL não começar com http:// ou https://, adicionar http://
-    if (url && !url.match(/^https?:\/\//)) {
+    if (!url.match(/^https?:\/\//)) {
         return `http://${url}`;
     }
     return url;
@@ -368,184 +499,415 @@ function extractServerIdentifier(url) {
     }
 }
 
-// Carregar dados do servidor SQL
+// Carregar dados com sistema de cache
 async function loadDataFromServer() {
-    // Verificar se há configurações de conexão
-    if (!appConfig.server.url || !appConfig.server.username || !appConfig.server.password) {
-        console.warn('Configurações de conexão incompletas');
-        return false;
-    }
+    showLoading();
     
     try {
-        // Exibir indicador de carregamento
-        showLoading(true);
-        
-        // Normalizar URL (adicionar protocolo se necessário)
-        const normalizedUrl = normalizeUrl(appConfig.server.url);
-        
-        // Extrair identificador do servidor para debug
-        const serverIdentifier = extractServerIdentifier(normalizedUrl);
-        console.log('Tentando conectar a:', normalizedUrl, 'Identificador:', serverIdentifier);
-        
-        // MODO DE SIMULAÇÃO: Se for o IP 10.142.111.2, simular dados
-        if (serverIdentifier === '10.142.111.2') {
-            // Simulação de tempo de carregamento
-            await new Promise(resolve => setTimeout(resolve, 1000));
+        // Verificar se temos dados em cache
+        if (itemsCache.length > 0) {
+            console.log('Carregando dados do cache local...');
             
-            // Atualizar mockData com novos valores para simular dados recebidos do servidor
-            const timeStamp = new Date().toLocaleTimeString();
-            mockData = mockData.map(item => ({
-                ...item,
-                descricao: `${item.descricao} (Atualizado: ${timeStamp})`
-            }));
+            // Filtrar apenas itens ativos
+            const activeItems = itemsCache.filter(item => item.status !== 'Baixado');
             
-            // Atualizar filtros e renderizar tabela
-            updateFilterOptions();
-            renderTable(mockData);
-            showLoading(false);
+            // Renderizar dados do cache enquanto sincroniza em segundo plano
+            renderTable(activeItems);
             
-            console.log('Dados simulados carregados para o servidor:', serverIdentifier);
-            return true;
-        }
-        
-        // Modo real: conectar ao backend
-        try {
-            // API endpoint do backend
-            const apiUrl = `${normalizedUrl}/api/imobilizado/getData`;
-            console.log('Tentando API URL:', apiUrl);
-            
-            const requestData = {
-                username: appConfig.server.username,
-                password: appConfig.server.password
-            };
-            
-            const response = await fetch(apiUrl, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(requestData)
-            });
-            
-            // Se a conexão for bem-sucedida, processar resposta
-            if (response.ok) {
-                const data = await response.json();
+            // Mostrar indicador de que estamos usando dados em cache
+            if (needsSync) {
+                // Remover alertas anteriores antes de criar um novo
+                const existingAlerts = document.querySelectorAll('.alert-info');
+                existingAlerts.forEach(alert => alert.remove());
                 
-                // Verificar se a resposta tem a estrutura esperada
-                if (data && Array.isArray(data.items)) {
-                    // Converter a resposta do servidor para o formato esperado pelo aplicativo
-                    const formattedData = data.items.map((item, index) => ({
-                        id: item.id || item.codigo || `DB-${index + 1}`,
-                        codigo: item.codigo || '',
-                        item: item.item || '',
-                        descricao: item.descricao || '',
-                        categoria: item.categoria || '',
-                        local: item.local || '',
-                        valorAquisicao: parseFloat(item.valorAquisicao) || 0,
-                        status: item.status || 'Ativo',
-                        confirmacao: item.confirmacao === 1 || item.confirmacao === true
-                    }));
-                    
-                    // Atualizar os dados
-                    mockData = formattedData;
-                    
-                    // Atualizar os filtros
-                    updateFilterOptions();
-                    
-                    // Renderizar a tabela
-                    renderTable(mockData);
-                    
-                    // Ocultar indicador de carregamento
-                    showLoading(false);
-                    
-                    console.log(`Carregados ${formattedData.length} itens do servidor`);
-                    return true;
-                }
+                const alertDiv = document.createElement('div');
+                alertDiv.className = 'alert-info';
+                alertDiv.textContent = 'Usando dados em cache. Sincronização em andamento...';
+                alertDiv.style.position = 'fixed';
+                alertDiv.style.top = '10px';
+                alertDiv.style.right = '10px';
+                alertDiv.style.zIndex = '1000';
+                alertDiv.style.padding = '10px';
+                alertDiv.style.backgroundColor = '#d4edda';
+                alertDiv.style.color = '#155724';
+                alertDiv.style.borderRadius = '4px';
+                alertDiv.style.boxShadow = '0 0 10px rgba(0,0,0,0.1)';
+                document.body.appendChild(alertDiv);
+                
+                // Remover alerta após 3 segundos
+                setTimeout(() => {
+                    if (document.body.contains(alertDiv)) {
+                        document.body.removeChild(alertDiv);
+                    }
+                }, 3000);
             }
             
-            // Se chegou aqui, algo deu errado na comunicação
-            throw new Error(`Erro na resposta do servidor: ${response.status} ${response.statusText}`);
+            // Se precisamos sincronizar, fazemos isso em segundo plano
+            if (needsSync) {
+                synchronizeWithServer();
+            }
             
-        } catch (networkError) {
-            console.error('Erro de rede:', networkError);
-            showLoading(false);
-            alert(`Erro ao conectar ao servidor: ${networkError.message}. Verifique a conexão ou as configurações.`);
-            return false;
+            hideLoading();
+            return;
+        }
+        
+        // Se não temos cache, fazemos uma carga completa
+        await synchronizeWithServer();
+    } catch (error) {
+        console.error('Erro ao carregar dados:', error);
+        
+        // Remover alertas anteriores antes de criar um novo
+        const existingAlerts = document.querySelectorAll('.alert-error');
+        existingAlerts.forEach(alert => alert.remove());
+        
+        alert('Erro ao carregar dados: ' + error.message);
+        hideLoading();
+    }
+}
+
+// Sincronizar com o servidor
+async function synchronizeWithServer() {
+    try {
+        console.log('Sincronizando com o servidor...');
+        
+        // Obter dados da configuração
+        if (!appConfig.sql.server || !appConfig.sql.username || !appConfig.sql.password) {
+            console.error('Configuração de servidor incompleta');
+            needsSync = true;
+            return;
+        }
+        
+        // Normalizar a URL do servidor
+        const normalizedUrl = normalizeUrl(appConfig.sql.server);
+        console.log('URL normalizada:', normalizedUrl);
+        
+        // Preparar a consulta SQL
+        const sqlQuery = `
+            WITH BaseData AS (
+                SELECT 
+                    code       AS Código,
+                    name       AS Item,
+                    fa_char_1  AS Descrição,
+                    chart_name AS Categoria,
+                    section_name AS Local,
+                    id_entity,
+                    id_tag,
+                    id_chart
+                FROM v_fixed_asset_iud
+                WHERE id_entity = '474'
+            ),
+            AcquisitionData AS (
+                SELECT 
+                    id_tag, 
+                    value      AS Valor_Aquisicao, 
+                    date_close AS AcqDate,
+                    id_chart  AS Acq_id_chart
+                FROM Imobilizado_com_Erro_Contabil
+                WHERE id_chart IN ('8036', '9393', '8040', '8042', '8041', '8045', '8049', '8051', '9388')
+                
+                UNION ALL
+                
+                SELECT 
+                    id_tag, 
+                    value      AS Valor_Aquisicao, 
+                    datetime_0 AS AcqDate,
+                    id_chart  AS Acq_id_chart
+                FROM Old_document_item
+                WHERE id_chart IN ('8036', '9393', '8040', '8042', '8041', '8045', '8049', '8051', '9388')
+                
+                UNION ALL
+                
+                SELECT 
+                    id_tag, 
+                    value      AS Valor_Aquisicao, 
+                    datetime_0 AS AcqDate,
+                    id_chart  AS Acq_id_chart
+                FROM year_document_item
+                WHERE id_chart IN ('8036', '9393', '8040', '8042', '8041', '8045', '8049', '8051', '9388')
+            ),
+            RankedAcquisition AS (
+                SELECT 
+                    ad.*,
+                    ROW_NUMBER() OVER (PARTITION BY ad.id_tag ORDER BY ad.AcqDate DESC) AS rn
+                FROM AcquisitionData ad
+            )
+            SELECT
+                b.Código,
+                b.Item,
+                b.Descrição,
+                b.Categoria,
+                b.Local,
+                ISNULL(ra.Valor_Aquisicao, 0) AS Valor_de_Aquisicao,
+                'Ativo' AS Status
+            FROM BaseData b
+            LEFT JOIN RankedAcquisition ra 
+                ON b.id_tag = ra.id_tag 
+                AND ra.rn = 1
+            WHERE LEFT(COALESCE(ra.Acq_id_chart, b.id_chart), 4) NOT IN ('8040', '8041', '8042', '8045', '8049', '8051', '9388')
+              AND b.Categoria NOT IN ('1232001 - Terrenos', '1233005 - Edifícios', '1236005 - Veículos', 
+                      '1239010 - Biblioteca e Videoteca', '1241005 - Direito de Uso e Conc', 
+                      '1241010 - Software')
+            ORDER BY b.Código ASC
+        `;
+        
+        // Caso especial para IP 10.142.111.2 (conexão direta com SQL Server)
+        if (appConfig.sql.server === '10.142.111.2') {
+            try {
+                const result = await window.electronAPI.queryDatabase(
+                    normalizedUrl,
+                    appConfig.sql.username || 'controllerabc.bi',
+                    appConfig.sql.password || 'ASp#$I!17QF0',
+                    sqlQuery,
+                    appConfig.sql.database
+                );
+                
+                if (result && result.success) {
+                    updateLocalCache(result.items);
+                    return true;
+                } else {
+                    throw new Error('Falha ao carregar dados do SQL Server');
+                }
+            } catch (error) {
+                throw new Error(`Erro na conexão com SQL Server: ${error.message}`);
+            }
+        }
+        
+        // Para outros servidores, usar o backend local
+        const response = await fetch(`http://localhost:3000/api/imobilizado/getData`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                username: appConfig.sql.username,
+                password: appConfig.sql.password,
+                sqlQuery: sqlQuery
+            }),
+        });
+        
+        if (!response.ok) {
+            throw new Error(`Erro HTTP: ${response.status}`);
+        }
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            updateLocalCache(result.items);
+            return true;
+        } else {
+            throw new Error(result.error || 'Erro desconhecido');
         }
     } catch (error) {
-        console.error('Erro ao carregar dados do servidor:', error);
-        showLoading(false);
-        alert('Erro ao carregar dados do servidor. Verifique as configurações de conexão e tente novamente.');
+        console.error('Erro na sincronização:', error);
+        needsSync = true;
+        
+        if (itemsCache.length > 0) {
+            console.log('Usando dados em cache devido a erro na sincronização');
+            return false;
+        }
+        
+        console.log('Carregando dados simulados devido a erro na sincronização');
+        const serverIdentifier = appConfig?.sql?.server || 'default';
+        mockData = generateMockDataForServer(serverIdentifier);
+        updateLocalCache(mockData);
         return false;
     }
 }
 
-// Testar conexão com o servidor
-async function testConnection() {
-    const url = serverUrlInput.value;
-    const username = usernameInput.value;
-    const password = passwordInput.value;
+// Atualizar o cache local
+function updateLocalCache(items) {
+    if (!items || items.length === 0) return;
     
-    if (!url) {
-        alert('Por favor, informe a URL ou IP do servidor.');
-        return;
+    console.log(`Atualizando cache local com ${items.length} itens`);
+    
+    // Se já temos cache, fazemos merge dos dados
+    if (itemsCache.length > 0) {
+        // Criar mapa para busca rápida
+        const existingItemsMap = new Map();
+        itemsCache.forEach(item => {
+            existingItemsMap.set(item.codigo, item);
+        });
+        
+        // Atualizar itens existentes e adicionar novos
+        items.forEach(newItem => {
+            const existingItem = existingItemsMap.get(newItem.codigo);
+            if (existingItem) {
+                // Atualizar item existente preservando modificações locais
+                Object.assign(existingItem, newItem, {
+                    // Preservar status de confirmação local se existir
+                    confirmado: existingItem.confirmado !== undefined ? existingItem.confirmado : newItem.confirmado,
+                    // Preservar local novo se tiver sido alterado localmente
+                    localNovo: existingItem.localNovo || newItem.localNovo
+                });
+            } else {
+                // Adicionar novo item
+                itemsCache.push(newItem);
+            }
+        });
+    } else {
+        // Primeiro carregamento
+        itemsCache = [...items];
     }
     
-    // Exibir indicador de carregamento
-    showLoading(true);
+    // Não precisa mais filtrar, pois a consulta SQL já retorna apenas itens ativos
+    const activeItems = itemsCache;
+    
+    // Salvar no localStorage
+    localStorage.setItem('itemsCache', JSON.stringify(itemsCache));
+    
+    // Atualizar timestamp da última sincronização
+    lastSyncTimestamp = new Date().toISOString();
+    localStorage.setItem('lastSyncTimestamp', lastSyncTimestamp);
+    
+    // Resetar flag de sincronização
+    needsSync = false;
+    
+    // Limpar os dados simulados - não usaremos mais o mockData
+    // Usar os dados reais do banco em vez dos simulados
+    mockData = [...activeItems];
+    
+    // Atualizar os filtros quando novos dados forem carregados
+    loadInitialFilters();
+    
+    // Renderizar a tabela com os dados atualizados
+    renderTable(activeItems);
+}
+
+// Forçar sincronização manual
+function forceSyncWithServer() {
+    // Limpar timestamp para garantir sincronização completa
+    lastSyncTimestamp = null;
+    localStorage.removeItem('lastSyncTimestamp');
+    
+    synchronizeWithServer().then(() => {
+        alert('Sincronização concluída com sucesso!');
+    }).catch(error => {
+        alert('Erro na sincronização: ' + error.message);
+    });
+}
+
+// Verificar se precisamos sincronizar ao iniciar
+function checkSyncNeeded() {
+    // Se não temos timestamp de última sincronização, precisamos sincronizar
+    if (!lastSyncTimestamp) {
+        needsSync = true;
+        return true;
+    }
+    
+    // Verificar se passou mais de 1 hora desde a última sincronização
+    const lastSync = new Date(lastSyncTimestamp).getTime();
+    const oneHourAgo = Date.now() - (60 * 60 * 1000);
+    
+    needsSync = lastSync < oneHourAgo;
+    return needsSync;
+}
+
+// Adicionar função para exportar alterações locais para o servidor
+async function syncLocalChangesToServer() {
+    showLoading();
     
     try {
-        // Normalizar URL (adicionar protocolo se necessário)
-        const normalizedUrl = normalizeUrl(url);
+        // Coletar alterações locais
+        const modifiedItems = itemsCache.filter(item => 
+            item.confirmacao === true || item.localNovo
+        );
         
-        // Extrair identificador do servidor para verificação especial
-        const serverIdentifier = extractServerIdentifier(normalizedUrl);
-        console.log('Testando conexão com servidor:', normalizedUrl, 'Identificador:', serverIdentifier);
-        
-        // Caso especial para IP 10.142.111.2 (simulação)
-        if (serverIdentifier === '10.142.111.2') {
-            // Simular delay para parecer real
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            showLoading(false);
-            alert('Conexão bem sucedida! Servidor de testes identificado.');
+        if (modifiedItems.length === 0) {
+            hideLoading();
+            alert('Não há alterações locais para salvar');
             return;
         }
         
-        // Tentar conexão real para outros servidores
-        const testUrl = `${normalizedUrl}/api/test`;
-        console.log('Tentando API URL:', testUrl);
-        
-        const response = await fetch(testUrl, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                username,
-                password,
-                query: 'SELECT 1 AS test' // Consulta SQL de teste simples
-            })
+        // Atualizar o cache local com as alterações
+        modifiedItems.forEach(modifiedItem => {
+            const existingItem = itemsCache.find(item => item.id === modifiedItem.id);
+            if (existingItem) {
+                // Preservar apenas as alterações de confirmação e local novo
+                existingItem.confirmacao = modifiedItem.confirmacao;
+                existingItem.localNovo = modifiedItem.localNovo;
+            }
         });
         
-        // Ocultar indicador de carregamento
-        showLoading(false);
+        // Salvar no localStorage
+        localStorage.setItem('itemsCache', JSON.stringify(itemsCache));
         
-        if (response.ok) {
-            const data = await response.json();
-            if (data.success) {
-                alert('Conexão bem sucedida!');
-            } else {
-                throw new Error(data.error || 'Erro não especificado');
-            }
+        alert(`${modifiedItems.length} alterações salvas com sucesso no cache local!`);
+    } catch (error) {
+        console.error('Erro ao salvar alterações locais:', error);
+        alert('Erro ao salvar alterações: ' + error.message);
+    } finally {
+        hideLoading();
+    }
+}
+
+// Testar conexão SQL
+async function testSqlConnection() {
+    const config = {
+        server: sqlServerInput.value,
+        database: sqlDatabaseInput.value,
+        username: sqlUsernameInput.value,
+        password: sqlPasswordInput.value
+    };
+    
+    showLoading();
+    
+    try {
+        const testQuery = 'SELECT 1 AS test';
+        const result = await window.electronAPI.queryDatabase(
+            config.server,
+            config.username,
+            config.password,
+            testQuery,
+            config.database
+        );
+        
+        if (result && result.success) {
+            alert('Conexão SQL bem sucedida!');
         } else {
-            throw new Error(`Falha na conexão: ${response.status} ${response.statusText}`);
+            throw new Error('Falha no teste de conexão');
         }
     } catch (error) {
-        // Ocultar indicador de carregamento
-        showLoading(false);
+        console.error('Erro no teste de conexão:', error);
+        alert(`Erro ao testar conexão: ${error.message}`);
+    } finally {
+        hideLoading();
+    }
+}
+
+// Salvar configurações SQL
+function saveSqlConfig() {
+    try {
+        const config = {
+            server: sqlServerInput.value.trim(),
+            database: sqlDatabaseInput.value.trim(),
+            username: sqlUsernameInput.value.trim(),
+            password: sqlPasswordInput.value.trim()
+        };
         
-        console.error('Erro ao testar conexão:', error);
-        alert(`Erro ao testar conexão: ${error.message}\n\nRecomendações:\n1. Verifique se o servidor está acessível\n2. Problemas de CORS podem ocorrer ao conectar diretamente ao SQL Server do navegador\n3. Configure um backend API para fazer conexões SQL com segurança`);
+        // Validar campos obrigatórios
+        if (!config.server || !config.database || !config.username || !config.password) {
+            throw new Error('Todos os campos são obrigatórios');
+        }
+        
+        // Salvar no localStorage
+        localStorage.setItem('sqlServer', config.server);
+        localStorage.setItem('sqlDatabase', config.database);
+        localStorage.setItem('sqlUsername', config.username);
+        localStorage.setItem('sqlPassword', config.password);
+        
+        // Atualizar configuração global
+        appConfig.sql = config;
+        
+        // Fechar modal
+        sqlConfigModal.style.display = 'none';
+        
+        // Tentar carregar dados com nova configuração
+        loadDataFromServer();
+        
+        alert('Configurações SQL salvas com sucesso!');
+    } catch (error) {
+        console.error('Erro ao salvar configurações:', error);
+        alert('Erro ao salvar configurações: ' + error.message);
     }
 }
 
@@ -567,6 +929,11 @@ function showLoading(show) {
     }
 }
 
+// Função para ocultar o indicador de carregamento
+function hideLoading() {
+    showLoading(false);
+}
+
 // Atualizar visibilidade das colunas
 function updateColumnVisibility() {
     // Atualizar definições de colunas
@@ -576,6 +943,12 @@ function updateColumnVisibility() {
     
     // Reconstruir cabeçalho da tabela
     renderTableHeader();
+    
+    // Renderizar novamente a tabela para refletir as alterações de colunas
+    const dataToRender = itemsCache.length > 0 ? itemsCache : mockData;
+    renderTable(dataToRender);
+    
+    console.log('Visibilidade das colunas atualizada:', appConfig.columns);
 }
 
 // Renderizar cabeçalho da tabela
@@ -643,17 +1016,26 @@ function setupDropdown(selectedElement, optionsElement, type) {
         event.stopPropagation();
     });
     
-    // Lidar com cliques nas opções
-    optionsElement.addEventListener('change', function(e) {
-        if (e.target.type === 'checkbox') {
-            const checkbox = e.target;
+    // Limpar e re-registrar os event listeners para os checkboxes
+    const checkboxes = optionsElement.querySelectorAll('input[type="checkbox"]');
+    
+    console.log(`Registrando eventos para ${checkboxes.length} checkboxes no dropdown ${type}`);
+    
+    checkboxes.forEach(checkbox => {
+        // Remover event listeners antigos (se existirem)
+        const newCheckbox = checkbox.cloneNode(true);
+        checkbox.parentNode.replaceChild(newCheckbox, checkbox);
+        
+        // Registrar novo event listener
+        newCheckbox.addEventListener('change', function() {
+            console.log(`Checkbox ${this.id} alterado para ${this.checked}`);
             
-            if (checkbox.classList.contains('all-option')) {
+            if (this.classList.contains('all-option')) {
                 // Se "Todos" for selecionado/desselecionado
-                handleAllOption(optionsElement, checkbox, type);
+                handleAllOption(optionsElement, this, type);
             } else {
                 // Para opções regulares
-                handleRegularOption(optionsElement, checkbox, type);
+                handleRegularOption(optionsElement, this, type);
             }
             
             // Atualizar texto do dropdown
@@ -661,12 +1043,21 @@ function setupDropdown(selectedElement, optionsElement, type) {
             
             // Filtrar dados
             filterData();
-        }
+        });
+    });
+    
+    // Fechar todos os dropdowns ao clicar fora
+    document.addEventListener('click', function() {
+        document.querySelectorAll('.custom-dropdown').forEach(el => {
+            el.classList.remove('open');
+        });
     });
 }
 
 // Lidar com a opção "Todos"
 function handleAllOption(optionsContainer, allCheckbox, type) {
+    console.log(`Opção "Todos" para ${type} alterada para ${allCheckbox.checked}`);
+    
     const checkboxes = optionsContainer.querySelectorAll('input[type="checkbox"]:not(.all-option)');
     
     // Se "Todos" for marcado, desmarque todas as outras opções
@@ -675,13 +1066,24 @@ function handleAllOption(optionsContainer, allCheckbox, type) {
             cb.checked = false;
         });
         
-        // Atualizar array de filtros ativos
+        // Limpar array de filtros ativos
         if (type === 'location') {
             activeLocationFilters = [];
+            console.log('Filtros de local limpos');
         } else if (type === 'category') {
             activeCategoryFilters = [];
+            console.log('Filtros de categoria limpos');
         } else if (type === 'status') {
             activeStatusFilters = [];
+            console.log('Filtros de status limpos');
+        }
+    } else {
+        // Se "Todos" for desmarcado mas nenhuma outra opção estiver marcada,
+        // marcar "Todos" novamente pois precisa ter pelo menos um filtro ativo
+        const anyChecked = Array.from(checkboxes).some(cb => cb.checked);
+        if (!anyChecked) {
+            allCheckbox.checked = true;
+            console.log(`Opção "Todos" para ${type} remarcada automaticamente`);
         }
     }
 }
@@ -691,17 +1093,28 @@ function handleRegularOption(optionsContainer, checkbox, type) {
     const allCheckbox = optionsContainer.querySelector('.all-option');
     const value = checkbox.value;
     
+    console.log(`Opção ${type} alterada: ${value}, Checked: ${checkbox.checked}`);
+    
     // Se alguma opção regular for selecionada, desmarque "Todos"
     if (checkbox.checked) {
-        allCheckbox.checked = false;
+        if (allCheckbox) {
+            allCheckbox.checked = false;
+        }
         
         // Adicionar ao array de filtros ativos
         if (type === 'location') {
-            activeLocationFilters.push(value);
+            // Verificar se já não existe antes de adicionar
+            if (!activeLocationFilters.includes(value)) {
+                activeLocationFilters.push(value);
+            }
         } else if (type === 'category') {
-            activeCategoryFilters.push(value);
+            if (!activeCategoryFilters.includes(value)) {
+                activeCategoryFilters.push(value);
+            }
         } else if (type === 'status') {
-            activeStatusFilters.push(value);
+            if (!activeStatusFilters.includes(value)) {
+                activeStatusFilters.push(value);
+            }
         }
     } else {
         // Remover do array de filtros ativos
@@ -714,9 +1127,14 @@ function handleRegularOption(optionsContainer, checkbox, type) {
         }
     }
     
+    console.log(`Filtros de ${type} após alteração:`, 
+        type === 'location' ? activeLocationFilters : 
+        type === 'category' ? activeCategoryFilters : 
+        activeStatusFilters);
+    
     // Se não houver seleção, marque "Todos"
     const anyChecked = Array.from(optionsContainer.querySelectorAll('input[type="checkbox"]:not(.all-option)')).some(cb => cb.checked);
-    if (!anyChecked) {
+    if (!anyChecked && allCheckbox) {
         allCheckbox.checked = true;
         
         // Limpar array de filtros ativos
@@ -765,17 +1183,66 @@ function updateDropdownText(selectedElement, type) {
 
 // Carregar os filtros iniciais (antes de carregar dados do servidor)
 function loadInitialFilters() {
-    // Carregar locais
-    locations.forEach(location => {
+    console.log('Carregando filtros iniciais...');
+    
+    // Verificar se os elementos dos dropdowns existem
+    if (!locationDropdown || !locationDropdown.options || !categoryDropdown || !categoryDropdown.options) {
+        console.error('Elementos dos dropdowns não encontrados');
+        return;
+    }
+    
+    // Limpar opções existentes (exceto a opção "Todos")
+    const locationOptions = locationDropdown.options.querySelectorAll('.dropdown-option:not(:first-child)');
+    locationOptions.forEach(option => option.remove());
+    
+    const categoryOptions = categoryDropdown.options.querySelectorAll('.dropdown-option:not(:first-child)');
+    categoryOptions.forEach(option => option.remove());
+    
+    // Determinar se usamos dados do cache ou mock
+    const dataSource = itemsCache.length > 0 ? itemsCache : mockData;
+    
+    // Extrair locais e categorias únicos dos dados
+    const uniqueLocations = new Set();
+    const uniqueCategories = new Set();
+    
+    dataSource.forEach(item => {
+        // Considerar tanto propriedades em minúsculas quanto maiúsculas
+        const itemLocal = item.local || item.Local;
+        const itemCategoria = item.categoria || item.Categoria;
+        
+        if (itemLocal) uniqueLocations.add(itemLocal);
+        if (itemCategoria) uniqueCategories.add(itemCategoria);
+    });
+    
+    console.log('Locais únicos encontrados:', [...uniqueLocations]);
+    console.log('Categorias únicas encontradas:', [...uniqueCategories]);
+    
+    // Adicionar locais ao dropdown
+    [...uniqueLocations].sort().forEach(location => {
         addFilterOption(locationDropdown.options, location, 'location');
     });
-
-    // Carregar categorias
-    categories.forEach(category => {
+    
+    // Adicionar categorias ao dropdown
+    [...uniqueCategories].sort().forEach(category => {
         addFilterOption(categoryDropdown.options, category, 'category');
     });
     
-    // Status já estão definidos no HTML
+    // Re-configurar os dropdowns após adicionar as novas opções
+    setupDropdown(locationDropdown.selected, locationDropdown.options, 'location');
+    setupDropdown(categoryDropdown.selected, categoryDropdown.options, 'category');
+    setupDropdown(statusDropdown.selected, statusDropdown.options, 'status');
+    
+    console.log('Filtros iniciais carregados com sucesso');
+}
+
+// Função para obter locais únicos dos dados
+function getUniqueLocations(data) {
+    const uniqueLocations = new Set();
+    data.forEach(item => {
+        const itemLocal = item.local || item.Local;
+        if (itemLocal) uniqueLocations.add(itemLocal);
+    });
+    return [...uniqueLocations].sort();
 }
 
 // Renderizar a tabela com os dados
@@ -795,6 +1262,9 @@ function renderTable(data) {
         return;
     }
 
+    // Obter lista de locais únicos dos dados atuais
+    const availableLocations = getUniqueLocations(data);
+
     data.forEach(item => {
         const row = document.createElement('tr');
         row.dataset.id = item.id;
@@ -802,7 +1272,8 @@ function renderTable(data) {
         // Criar select para mudança de local
         const locationChangeSelect = document.createElement('select');
         locationChangeSelect.classList.add('change-location');
-        locationChangeSelect.dataset.originalValue = item.local;
+        const itemLocal = item.local || item.Local;
+        locationChangeSelect.dataset.originalValue = itemLocal;
         
         // Opção em branco
         const emptyOption = document.createElement('option');
@@ -811,8 +1282,8 @@ function renderTable(data) {
         locationChangeSelect.appendChild(emptyOption);
         
         // Adicionar opções de locais
-        locations.forEach(loc => {
-            if (loc !== item.local) { // Não mostrar o local atual como opção
+        availableLocations.forEach(loc => {
+            if (loc !== itemLocal) { // Não mostrar o local atual como opção
                 const option = document.createElement('option');
                 option.value = loc;
                 option.textContent = loc;
@@ -869,97 +1340,123 @@ function renderTable(data) {
 
 // Configurar modal de configurações
 function setupConfigModal() {
-    console.log('Verificando configurações da modal...');
+    console.log('Configurando modais...');
     
-    // Não adicionar novos event listeners para abrir/fechar a modal
-    // porque isso já está sendo tratado pelo script inline no HTML
-    
-    // Verificar se os elementos existem para as outras funcionalidades
-    if (!saveConfig) {
-        console.error('Botão de salvar configurações não encontrado');
-        return;
+    // Configurar modal SQL
+    if (configSqlBtn) {
+        configSqlBtn.addEventListener('click', function() {
+            sqlConfigModal.style.display = 'block';
+        });
     }
     
-    if (!cancelConfig) {
-        console.error('Botão de cancelar configurações não encontrado');
-        return;
-    }
-    
-    if (!testConnectionBtn) {
-        console.error('Botão de testar conexão não encontrado');
-        return;
-    }
-    
-    // Salvar configurações
-    saveConfig.addEventListener('click', function() {
-        console.log('Botão salvar configurações clicado');
-        if (saveAppConfig()) {
-            document.getElementById('configModal').style.display = 'none';
-            alert('Configurações salvas com sucesso!');
-        } else {
-            alert('Erro ao salvar configurações. Tente novamente.');
-        }
-    });
-    
-    // Cancelar
-    cancelConfig.addEventListener('click', function() {
-        console.log('Botão cancelar configurações clicado');
-        document.getElementById('configModal').style.display = 'none';
+    if (sqlConfigModal) {
+        // Fechar modal SQL
+        document.getElementById('closeSqlConfig').addEventListener('click', function() {
+            sqlConfigModal.style.display = 'none';
+        });
         
-        // Restaurar checkboxes para estado atual
-        columnDefs.forEach(col => {
-            const checkbox = document.getElementById(`col-${col.id}`);
-            if (checkbox) {
-                checkbox.checked = appConfig.columns[col.id];
+        // Fechar ao clicar fora
+        window.addEventListener('click', function(event) {
+            if (event.target === sqlConfigModal) {
+                sqlConfigModal.style.display = 'none';
             }
         });
-    });
+        
+        // Botão de teste de conexão SQL
+        if (testSqlConnectionBtn) {
+            testSqlConnectionBtn.addEventListener('click', testSqlConnection);
+        }
+        
+        // Salvar configurações SQL
+        if (saveSqlConfigBtn) {
+            saveSqlConfigBtn.addEventListener('click', saveSqlConfig);
+        }
+        
+        // Cancelar configurações SQL
+        if (cancelSqlConfigBtn) {
+            cancelSqlConfigBtn.addEventListener('click', function() {
+                sqlConfigModal.style.display = 'none';
+            });
+        }
+        
+        // Toggle de visibilidade da senha SQL
+        const toggleSqlPasswordBtn = document.getElementById('toggleSqlPassword');
+        if (toggleSqlPasswordBtn) {
+            toggleSqlPasswordBtn.addEventListener('click', function() {
+                const type = sqlPasswordInput.type === 'password' ? 'text' : 'password';
+                sqlPasswordInput.type = type;
+                toggleSqlPasswordBtn.innerHTML = type === 'password' ? 
+                    '<i class="fas fa-eye"></i>' : 
+                    '<i class="fas fa-eye-slash"></i>';
+            });
+        }
+    }
     
-    // Testar conexão
-    testConnectionBtn.addEventListener('click', function() {
-        console.log('Botão testar conexão clicado');
-        testConnection();
-    });
-    
-    console.log('Eventos de ações da modal configurados com sucesso');
+    // ... rest of existing modal setup code ...
 }
 
 // Obter dados filtrados
 function getFilteredData() {
+    // Usar os dados do cache se disponíveis, caso contrário usar mockData
+    const dataToFilter = itemsCache.length > 0 ? itemsCache : mockData;
+    
     const searchTerm = searchInput ? searchInput.value.toLowerCase() : '';
     
-    let filteredData = mockData;
+    let filteredData = dataToFilter;
     
     // Filtrar por termo de busca
     if (searchTerm) {
         filteredData = filteredData.filter(item => 
-            item.item.toLowerCase().includes(searchTerm) ||
-            item.descricao.toLowerCase().includes(searchTerm) ||
-            item.codigo.toLowerCase().includes(searchTerm)
+            (item.item && item.item.toLowerCase().includes(searchTerm)) ||
+            (item.descricao && item.descricao.toLowerCase().includes(searchTerm)) ||
+            (item.codigo && item.codigo.toLowerCase().includes(searchTerm))
         );
     }
     
     // Filtrar por local (seleção múltipla)
     if (activeLocationFilters.length > 0) {
-        filteredData = filteredData.filter(item => activeLocationFilters.includes(item.local));
+        console.log('Filtrando por local:', activeLocationFilters);
+        filteredData = filteredData.filter(item => {
+            // Verificar tanto item.local quanto item.Local (maiúscula vs. minúscula)
+            const itemLocal = item.local || item.Local;
+            return activeLocationFilters.includes(itemLocal);
+        });
     }
     
     // Filtrar por categoria (seleção múltipla)
     if (activeCategoryFilters.length > 0) {
-        filteredData = filteredData.filter(item => activeCategoryFilters.includes(item.categoria));
+        console.log('Filtrando por categoria:', activeCategoryFilters);
+        filteredData = filteredData.filter(item => {
+            // Verificar tanto item.categoria quanto item.Categoria
+            const itemCategoria = item.categoria || item.Categoria;
+            return activeCategoryFilters.includes(itemCategoria);
+        });
     }
     
     // Filtrar por status (seleção múltipla)
     if (activeStatusFilters.length > 0) {
-        filteredData = filteredData.filter(item => activeStatusFilters.includes(item.status));
+        console.log('Filtrando por status:', activeStatusFilters);
+        filteredData = filteredData.filter(item => {
+            // Verificar tanto item.status quanto item.Status
+            const itemStatus = item.status || item.Status;
+            return activeStatusFilters.includes(itemStatus);
+        });
     }
     
+    console.log(`Filtros aplicados: encontrados ${filteredData.length} itens de ${dataToFilter.length}`);
     return filteredData;
 }
 
 // Filtrar dados
 function filterData() {
+    console.log('Aplicando filtros...');
+    console.log('Filtros de local ativos:', activeLocationFilters);
+    console.log('Filtros de categoria ativos:', activeCategoryFilters);
+    console.log('Filtros de status ativos:', activeStatusFilters);
+    
     const filteredData = getFilteredData();
+    console.log(`Dados filtrados: ${filteredData.length} itens de ${itemsCache.length > 0 ? itemsCache.length : mockData.length}`);
+    
     renderTable(filteredData);
 }
 
@@ -971,60 +1468,13 @@ function formatCurrency(value) {
     }).format(value);
 }
 
-// Salvar configurações no localStorage
-function saveAppConfig() {
-    try {
-        // Atualizar configurações de colunas
-        columnDefs.forEach(col => {
-            const checkbox = document.getElementById(`col-${col.id}`);
-            if (checkbox) {
-                appConfig.columns[col.id] = checkbox.checked;
-            }
-        });
-        
-        // Atualizar configurações de servidor
-        const newUrl = serverUrlInput.value;
-        const normalizedUrl = normalizeUrl(newUrl); // Normalizar URL
-        const newUsername = usernameInput.value;
-        const newPassword = passwordInput.value;
-        
-        // Verificar se houve mudança nas configurações de conexão
-        const connectionChanged = 
-            normalizedUrl !== appConfig.server.url || 
-            newUsername !== appConfig.server.username || 
-            newPassword !== appConfig.server.password;
-        
-        // Atualizar configurações no objeto
-        appConfig.server.url = normalizedUrl; // Usar URL normalizada
-        appConfig.server.username = newUsername;
-        appConfig.server.password = newPassword;
-        
-        // Atualizar campo de entrada com URL normalizada
-        serverUrlInput.value = normalizedUrl;
-        
-        // Salvar no localStorage
-        localStorage.setItem('imobilizadoAppConfig', JSON.stringify(appConfig));
-        localStorage.setItem('serverUrl', normalizedUrl);
-        localStorage.setItem('username', newUsername);
-        localStorage.setItem('password', newPassword);
-        
-        // Atualizar UI baseado nas configurações
-        updateColumnVisibility();
-        
-        // Se houver mudança nas configurações de conexão, recarregar dados do servidor
-        if (connectionChanged && normalizedUrl && newUsername && newPassword) {
-            // Carregar dados do servidor com as novas configurações
-            loadDataFromServer();
-        } else {
-            // Apenas atualizar a tabela com os dados filtrados existentes
-            renderTable(getFilteredData());
-        }
-        
-        return true;
-    } catch (e) {
-        console.error('Erro ao salvar configurações:', e);
-        return false;
-    }
+// Função para gerar dados mock quando não há conexão com o servidor
+function generateMockDataForServer() {
+    return mockData.map(item => ({
+        ...item,
+        localNovo: '',
+        confirmacao: false
+    }));
 }
 
 // Exportar dados
@@ -1128,52 +1578,42 @@ function clearSearch() {
     renderTable(mockData);
 }
 
-// Inicializar a aplicação quando o DOM estiver carregado
-console.log('Registrando event listener para DOMContentLoaded...');
-document.addEventListener('DOMContentLoaded', function() {
-    console.log('DOMContentLoaded disparado');
+// Adicionar opção ao filtro dropdown
+function addFilterOption(container, value, type) {
+    if (!container) return;
     
-    // Verificar se todos os elementos necessários estão presentes
-    const requiredElements = {
-        'searchName': searchNameInput,
-        'searchButton': searchButton,
-        'tableHeader': tableHeader,
-        'itemsTableBody': itemsTableBody,
-        'saveButton': saveButton,
-        'exportButton': exportButton,
-        'reloadButton': reloadButton,
-        'locationSelected': locationSelected,
-        'locationOptions': locationOptions,
-        'categorySelected': categorySelected,
-        'categoryOptions': categoryOptions,
-        'statusSelected': statusSelected,
-        'statusOptions': statusOptions,
-        'configIcon': configIcon,
-        'configModal': configModal,
-        'saveConfig': saveConfig,
-        'cancelConfig': cancelConfig,
-        'testConnection': testConnection
-    };
+    const optionId = `${type}-${value.toLowerCase().replace(/\s+/g, '-')}`;
     
-    let missingElements = [];
-    for (const [id, element] of Object.entries(requiredElements)) {
-        if (!element) {
-            missingElements.push(id);
-            console.error(`Elemento ${id} não encontrado`);
-        }
-    }
+    // Verificar se já existe
+    if (document.getElementById(optionId)) return;
     
-    if (missingElements.length > 0) {
-        console.error(`Elementos faltando: ${missingElements.join(', ')}`);
-        alert(`Erro: Alguns elementos da interface não foram encontrados: ${missingElements.join(', ')}`);
-    }
+    const optionDiv = document.createElement('div');
+    optionDiv.className = 'dropdown-option';
     
-    // Mesmo com erro, tentar inicializar para que partes da aplicação possam funcionar
-    initApp();
-});
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.id = optionId;
+    checkbox.value = value;
+    checkbox.className = `${type}-option`;
+    
+    const label = document.createElement('label');
+    label.htmlFor = optionId;
+    label.textContent = value;
+    
+    optionDiv.appendChild(checkbox);
+    optionDiv.appendChild(label);
+    
+    container.appendChild(optionDiv);
+}
 
 // Garantia dupla de inicialização (caso o DOMContentLoaded já tenha disparado)
 if (document.readyState === 'complete' || document.readyState === 'interactive') {
     console.log('Documento já está pronto, inicializando diretamente');
-    setTimeout(initApp, 1);
+    setTimeout(initApp, 100);
+} else {
+    console.log('Aguardando carregamento do documento...');
+    window.addEventListener('load', function() {
+        console.log('Evento load disparado, inicializando aplicação...');
+        setTimeout(initApp, 100);
+    });
 } 
